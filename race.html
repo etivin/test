@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Road Racer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1f24; color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .5px; }
+  canvas { background: #2b2f36; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.5);
+    max-width: calc(100vw - 32px); height: auto; }
+  p { margin: 0; color: #aab; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>Road Racer</h1>
+<canvas id="game" width="400" height="600"></canvas>
+<p>← → steer &nbsp;·&nbsp; ↑ speed up &nbsp;·&nbsp; ↓ brake &nbsp;·&nbsp; Space to start / restart</p>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const ROAD_X = 50, ROAD_W = 300, LANES = 3, LANE_W = ROAD_W / LANES;
+const CAR_W = 40, CAR_H = 70;
+const MIN_SPEED = 3, MAX_SPEED = 14;
+const TRAFFIC_COLORS = ['#3fa9f5', '#f5a623', '#7ed321', '#bd10e0', '#f8e71c'];
+
+const keys = {};
+let state, player, traffic, speed, distance, stripeOffset, spawnTimer, best = 0;
+
+function reset() {
+  player = { x: W / 2 - CAR_W / 2, y: H - CAR_H - 30 };
+  traffic = [];
+  speed = 5;
+  distance = 0;
+  stripeOffset = 0;
+  spawnTimer = 0;
+}
+
+function spawnCar() {
+  const lane = Math.floor(Math.random() * LANES);
+  const x = ROAD_X + lane * LANE_W + (LANE_W - CAR_W) / 2;
+  // Don't stack a new car right on top of one just spawned in the same lane
+  if (traffic.some(c => c.x === x && c.y < CAR_H * 2)) return;
+  traffic.push({
+    x, y: -CAR_H,
+    speed: 1.5 + Math.random() * 2.5, // traffic drives forward, just slower than you
+    color: TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)]
+  });
+}
+
+function update() {
+  if (keys.ArrowUp) speed = Math.min(MAX_SPEED, speed + 0.12);
+  else if (keys.ArrowDown) speed = Math.max(MIN_SPEED, speed - 0.25);
+  else speed = Math.max(MIN_SPEED, speed - 0.02);
+
+  const steer = 5;
+  if (keys.ArrowLeft) player.x -= steer;
+  if (keys.ArrowRight) player.x += steer;
+  player.x = Math.max(ROAD_X + 4, Math.min(ROAD_X + ROAD_W - CAR_W - 4, player.x));
+
+  distance += speed;
+  stripeOffset = (stripeOffset + speed) % 40;
+
+  // Spawn more often as you go faster and farther
+  spawnTimer -= speed;
+  if (spawnTimer <= 0) {
+    spawnCar();
+    spawnTimer = Math.max(90, 260 - distance / 150) + Math.random() * 80;
+  }
+
+  for (const c of traffic) c.y += speed - c.speed;
+  traffic = traffic.filter(c => c.y < H + CAR_H);
+
+  for (const c of traffic) {
+    const hit = player.x < c.x + CAR_W - 6 && player.x + CAR_W - 6 > c.x &&
+                player.y < c.y + CAR_H - 6 && player.y + CAR_H - 6 > c.y;
+    if (hit) {
+      state = 'over';
+      best = Math.max(best, score());
+    }
+  }
+}
+
+function score() { return Math.floor(distance / 10); }
+
+function drawCar(x, y, color, isPlayer) {
+  ctx.fillStyle = color;
+  roundRect(x, y, CAR_W, CAR_H, 8);
+  // windshield + rear window
+  ctx.fillStyle = 'rgba(20,30,45,.85)';
+  roundRect(x + 6, y + (isPlayer ? 14 : 44), CAR_W - 12, 14, 3);
+  roundRect(x + 6, y + (isPlayer ? 46 : 12), CAR_W - 12, 10, 3);
+  // wheels
+  ctx.fillStyle = '#111';
+  ctx.fillRect(x - 3, y + 10, 4, 14);
+  ctx.fillRect(x + CAR_W - 1, y + 10, 4, 14);
+  ctx.fillRect(x - 3, y + CAR_H - 24, 4, 14);
+  ctx.fillRect(x + CAR_W - 1, y + CAR_H - 24, 4, 14);
+  if (isPlayer) { // racing stripe
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + CAR_W / 2 - 3, y + 2, 6, CAR_H - 4);
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.fill();
+}
+
+function draw() {
+  // grass
+  ctx.fillStyle = '#2f7d32';
+  ctx.fillRect(0, 0, W, H);
+  // road
+  ctx.fillStyle = '#44474d';
+  ctx.fillRect(ROAD_X, 0, ROAD_W, H);
+  // edge lines
+  ctx.fillStyle = '#eee';
+  ctx.fillRect(ROAD_X, 0, 4, H);
+  ctx.fillRect(ROAD_X + ROAD_W - 4, 0, 4, H);
+  // dashed lane lines
+  ctx.fillStyle = '#ddd';
+  for (let l = 1; l < LANES; l++) {
+    const lx = ROAD_X + l * LANE_W - 2;
+    for (let y = -40 + stripeOffset; y < H; y += 40) ctx.fillRect(lx, y, 4, 22);
+  }
+
+  for (const c of traffic) drawCar(c.x, c.y, c.color, false);
+  drawCar(player.x, player.y, '#e53935', true);
+
+  // HUD
+  ctx.fillStyle = 'rgba(0,0,0,.55)';
+  ctx.fillRect(8, 8, 130, 52);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 16px system-ui, sans-serif';
+  ctx.fillText('Score: ' + score(), 16, 30);
+  ctx.font = '13px system-ui, sans-serif';
+  ctx.fillText('Speed: ' + Math.round(speed * 15) + ' mph', 16, 50);
+
+  if (state !== 'playing') {
+    ctx.fillStyle = 'rgba(0,0,0,.65)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 34px system-ui, sans-serif';
+    ctx.fillText(state === 'over' ? 'CRASH!' : 'ROAD RACER', W / 2, H / 2 - 40);
+    ctx.font = '16px system-ui, sans-serif';
+    if (state === 'over') ctx.fillText('Score: ' + score() + '   Best: ' + best, W / 2, H / 2);
+    else ctx.fillText('Dodge the traffic. Go as far as you can.', W / 2, H / 2);
+    ctx.fillText('Press Space to ' + (state === 'over' ? 'race again' : 'start'), W / 2, H / 2 + 34);
+    ctx.textAlign = 'left';
+  }
+}
+
+function loop() {
+  if (state === 'playing') update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+addEventListener('keydown', e => {
+  if (e.key.startsWith('Arrow') || e.key === ' ') e.preventDefault();
+  keys[e.key] = true;
+  if (e.key === ' ' && state !== 'playing') { reset(); state = 'playing'; }
+});
+addEventListener('keyup', e => { keys[e.key] = false; });
+
+reset();
+state = 'start';
+loop();
+</script>
+</body>
+</html>
