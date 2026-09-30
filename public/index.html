@@ -28,6 +28,16 @@
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+// Older browsers (e.g. Chrome < 99, Safari < 16) don't have roundRect
+if (!ctx.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    r = Math.min(Math.abs(+r || 0), Math.abs(w) / 2, Math.abs(h) / 2);
+    this.moveTo(x + r, y);
+    this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r);
+    this.closePath();
+  };
+}
 const W = canvas.width, H = canvas.height;
 
 // ---------- World / camera constants ----------
@@ -1041,14 +1051,27 @@ canvas.addEventListener('pointercancel', pointerStop);
 buildTrack();
 reset();
 let last = performance.now();
+function showError(err) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#300'; ctx.fillRect(0, H - 60, W, 60);
+  ctx.fillStyle = '#fff'; ctx.font = '14px system-ui, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('Error: ' + (err && err.message || err), 12, H - 26, W - 24);
+}
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
-  update(dt);
-  render();
+  try {
+    update(dt);
+    render();
+  } catch (err) {
+    console.error(err);
+    showError(err);
+  }
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+// Draw the first frame right away so the screen is never left blank
+frame(performance.now());
 </script>
 </body>
 </html>
